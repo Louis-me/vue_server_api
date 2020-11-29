@@ -18,6 +18,6 @@ class User(models.Model):
     def __str__(self):
         return self.name
 
-    class Meta:
-        ordering = ["c_time"]
-        verbose_name = "用户"
+    # class Meta:
+    #     ordering = ["c_time"]
+    #     verbose_name = "用户"
