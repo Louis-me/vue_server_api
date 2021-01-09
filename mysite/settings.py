@@ -40,9 +40,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'myapi',
-    'corsheaders'
-    # 'myapi.apps.MyapiConfig',
+    'myapi',# 注册应用
+    'corsheaders', # 跨域
+    'django_apscheduler', # 定时任务
 
 ]
 
