@@ -1,8 +1,8 @@
 # 说明
 
-- 此项目主要了是为学习vue配套的服务端
+- 此项目主要了是为学习[vue客户端](https://github.com/Louis-me/autoapiclient) 配套的服务端
 
-##使用设置
+## 使用设置
 
 - 注意setting.py中的mysql的数据库设置
 
