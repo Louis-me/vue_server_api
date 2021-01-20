@@ -1,4 +1,7 @@
+import ast
 import json
+import time
+from datetime import datetime
 
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 from django.http import JsonResponse
@@ -7,6 +10,9 @@ from django.core.exceptions import ObjectDoesNotExist
 from myapi.models import *
 import requests
 import json
+import threading
+import requests
+from myapi.base.task import ApiTask
 
 
 def check_login(func):  # 自定义登录验证装饰器
@@ -101,7 +107,7 @@ def loginout(request):
         else:
             return JsonResponse({"code": - 1, "msg": "login out is fail"})
     except ObjectDoesNotExist:
-        return JsonResponse({"code": 1, "msg": "login out is fail"})
+        return JsonResponse({"code": 1, "msg": "login out is success"})
 
 
 @check_login
@@ -308,9 +314,18 @@ def login_test(request):
 
 
 @check_login
+def get_all_suite(request):
+    resp = []
+    suites = Suite.objects.all()
+    for i in suites:
+        resp.append({"id": i.id, "name": i.name})
+    return JsonResponse({"code": 1, "msg": "success", "data": resp})
+
+
+@check_login
 def get_suite_list(request):
     """
-    套件列表
+    带条件的套件列表
     """
     data = request.GET
     query = data.get("query")  # 查询条件
@@ -346,11 +361,12 @@ def get_suite_list(request):
         else:
             is_fuzz_ch = "否"
         response["list"].append(
-            {"name": i.name,"id": i.id, "is_fuzz": i.is_fuzz, "is_fuzz_ch": is_fuzz_ch}
+            {"name": i.name, "id": i.id, "is_fuzz": i.is_fuzz, "is_fuzz_ch": is_fuzz_ch}
         )
     res = {'code': 1, 'msg': '获取成功', 'data': response}
     # 将数据返回到页面
     return JsonResponse(res)
+
 
 @check_login
 def suite_add(request):
@@ -432,6 +448,31 @@ def suite_del(request):
 
 
 @check_login
+def suite_to_case_list(request, id):
+    """
+    添加关联的用例列表
+    """
+    suite_id = id
+    try:
+        suite_set_cases = SuiteSetCase.objects.filter(suite_id=suite_id)
+        cases = Case.objects.all()
+        if not cases:
+            result = {'code': -1, 'msg': 'case data is null'}
+            return JsonResponse(result)
+        resp = []
+        for i in suite_set_cases:
+            for j in cases:
+                # 对比关联的id数据,只有在用例库中存在才展示
+                if j.id == i.case_id:
+                    resp.append({"case_id": i.case_id})
+        return JsonResponse({"code": 1, "msg": "success", "data": resp})
+
+    except ObjectDoesNotExist:
+        result = {'code': -1, 'msg': 'no effect row'}
+        return JsonResponse(result)
+
+
+@check_login
 def suite_set_case(request):
     """
     套件关联用例
@@ -444,6 +485,7 @@ def suite_set_case(request):
         return JsonResponse(result)
     # 先删除当前关联的用例逻辑
     suite_set_cases = SuiteSetCase.objects.all()
+    # suite_set_cases = SuiteSetCase.filter(suite_id=suite_id)
     for i in suite_set_cases:
         if i.suite_id == suite_id:
             try:
@@ -455,14 +497,26 @@ def suite_set_case(request):
     for i in case_ids:
         SuiteSetCase(suite_id=suite_id, case_id=i).save()
 
-    result = {'code': 0, 'msg': 'success'}
+    result = {'code': 1, 'msg': 'success'}
     return JsonResponse(result)
+
+
+@check_login
+def get_case_all_list(request):
+    """
+    所有用例列表
+    """
+    cases = Case.objects.all().order_by("-id")
+    resp = []
+    for i in cases:
+        resp.append({"id": i.id, "name": i.name})
+    return JsonResponse({"code": 1, "msg": "success", "data": resp})
 
 
 @check_login
 def get_case_list(request):
     """
-    用例列表
+    带分页和搜索的用例列表
     """
     data = request.GET
     query = data.get("query")  # 查询条件
@@ -495,7 +549,7 @@ def get_case_list(request):
     for i in users.object_list:
         response["list"].append(
             {"name": i.name, "url": i.url, "id": i.id, "protocol": i.protocol,
-             "method": i.method, "params": i.params, "hope": i.hope, "suite_id": i.suite_id}
+             "method": i.method, "params": i.params, "hope": i.hope}
         )
     res = {'code': 1, 'msg': '获取成功', 'data': response}
     # 将数据返回到页面
@@ -551,7 +605,7 @@ def case_edit(request):
     method = data.get("method")
     hope = data.get("hope")
     params = data.get("params")
-    if not id or not name or not url or not protocol or not protocol or not method  or not hope:
+    if not id or not name or not url or not protocol or not protocol or not method or not hope:
         res = {'code': -1, 'msg': 'id,name,url,hope,method,protocol must be fill'}
         return JsonResponse(res)
     try:
@@ -726,7 +780,54 @@ def get_real_time_task_list(request):
     """
     实时任务列表
     """
-    pass
+    data = request.GET
+    query = data.get("query")  # 查询条件
+    page_num = data.get("pagenum")  # 当前页码
+    page_size = data.get("pagesize")  # 每页显示多少条
+    task_type = 1
+    if query:
+        cases = Task.objects.filter(name__contains=query, task_type=task_type)
+
+    else:
+        cases = Task.objects.filter(task_type=task_type).order_by("-id")
+    response = {}
+    # 生成分页实例
+    paginator = Paginator(cases, page_size)
+    # 获取数据总条数
+    response['total_count'] = paginator.count
+    # 每页显示条数
+    response['page_size'] = page_size
+    # 总共页数
+    response['total_page'] = paginator.num_pages
+    response["list"] = []
+    try:
+        users = paginator.page(page_num)
+    except PageNotAnInteger:
+        users = paginator.page(1)
+    except EmptyPage:
+        users = paginator.page(paginator.num_pages)
+    # 当前多少页
+    response['pageNum'] = users.number
+    # 获取数据
+    for i in users.object_list:
+        if i.task_state == 1:
+            task_state_name = "测试中"
+        elif i.task_state == 2:
+            task_state_name = "测试完成"
+        else:
+            task_state_name = "未开始"
+        try:
+            suite_name = Suite.objects.get(id=i.suite_id).name
+        except:
+            suite_name = "没有值"
+
+        response["list"].append(
+            {"name": i.name, "id": i.id, "task_state_name": task_state_name,
+             "task_state": i.task_state, "suite_name": suite_name}
+        )
+    res = {'code': 1, 'msg': '获取成功', 'data': response}
+    # 将数据返回到页面
+    return JsonResponse(res)
 
 
 @check_login
@@ -749,7 +850,130 @@ def new_real_time_task(request):
     """
     新建实时任务
     """
-    pass
+    data = json.loads(request.body)
+    name = data.get("name")
+    task_state = 1
+    task_type = 1
+    suite_id = data.get("suite_id")
+    ta = Task(name=name, task_type=task_type, task_state=task_state, suite_id=suite_id)
+    ta.save()
+    res = {'code': 1, 'msg': 'success'}
+    threading.Thread(target=background_task, args=(), kwargs={"suite_id": suite_id, "task_id": ta.id}).start()
+    return JsonResponse(res)
+
+
+def background_task(suite_id, task_id):
+    """
+    suite_id: 套件id
+    task_id: 任务id
+    """
+    # 得到套件
+    su = Suite.objects.get(pk=suite_id)
+    # 得到套件下关联的用例
+    ss = su.suitesetcase_set.all()
+    start_time = datetime.now().strftime("%H:%M:%S")
+    # 新建一个测试报告
+    _report = Report(name=su.name, start_time=start_time, task_id=task_id)
+    _report.save()
+    # 初始化同级成功,失败,未检查的用例总数
+    passed = failed = no_check = 0
+    for i in ss:
+        case_id = i.case_id
+        case_entry = Case.objects.get(pk=case_id)
+        protocol = case_entry.protocol
+        method = case_entry.method
+        params = case_entry.params
+        hope = case_entry.hope
+        hopes = hope.split("|")
+        url = case_entry.url
+        res = {}
+        s_time = datetime.now().strftime("%H:%M:%S")
+        headers = {'Content-Type': "application/json"}
+        if method == "post":
+            if params:
+                params1 = ast.literal_eval(params)
+            else:
+                params1 = {}
+            print(protocol + "://" + url)
+            res = requests.post(url=protocol + "://" + url, json=params1, headers=headers)
+        elif method == "get":
+            if params:
+                params1 = ast.literal_eval(params)
+            else:
+                params1 = {}
+            print(protocol + "://" + url)
+            res = requests.get(url=protocol + "://" + url, params=params1, headers=headers)
+        else:
+            print("只支持get,post")
+        e_time = datetime.now().strftime("%H:%M:%S")
+        # 用例耗时时间
+        case_sum_time = ApiTask.get_case_total_time(s_time, e_time)
+        if res.status_code == 200:
+            resp = json.dumps(json.loads(res.text), separators=(',', ':'))
+            is_check = 0  # 0表示期望值不存在，没有进行检查;1成功;-1失败
+            if len(hopes):
+                is_check = 1
+                # 循环检查期望值是否在实际值中能找到
+                for j in hopes:
+                    if resp.find(j) == -1:
+                        is_check = -1
+                        break
+            # 同级用例结果
+            if is_check == 0:
+                no_check += 1
+            elif is_check == 1:
+                passed += 1
+            else:
+                failed += 1
+            # 新建测试报告详情，写测试接口的值
+            _report.reportitem_set.create(name=case_entry.name, url=url, protocol=protocol, method=method,
+                                          params=str(params)
+                                          , hope=hope, sum_time=case_sum_time, fact=resp,
+                                          result=is_check)
+            pass
+    time.sleep(5)
+    end_time = datetime.now().strftime("%H:%M:%S")
+    # 以小时，分钟，秒钟的方式记录所有用例耗时时间
+    total_time = ApiTask.get_case_total_time(start_time, end_time)
+    print("====total_time======")
+    print(total_time)
+    # 再次编辑测试报告
+    _report.sum_time = total_time
+    _report.passed = passed
+    _report.failed = failed
+    _report.no_check = no_check
+    _report.save()
+    # 回写任务状态为已完成
+    task_entry = Task.objects.get(pk=task_id)
+    task_entry.task_state = 2
+    task_entry.save()
+
+
+@check_login
+def real_time_task_detail(request, id):
+    """
+    实时任务详情
+    id为task得id
+    """
+    # ss = Task.objects.get(id=id)
+    # 得到测试总报告
+    report = Report.objects.get(task_id=id)
+    # 得到测试总报告下的测试详情
+    report_items = report.reportitem_set.all()
+    resp = []
+    for i in report_items:
+        url = i.protocol + "//" + i.url
+        # 1通过，-1失败，-2不检查
+        if i.result == 1:
+            result = "通过"
+        elif i.result == -1:
+            result = "失败"
+        else:
+            result = "无检查点"
+        app = {"url": url, "name": i.name, "method": i.method, "hope": i.hope, "fact": i.fact, "result": result}
+        resp.append(app)
+    data = {'code': 1, 'msg': 'success', "data": resp}
+    return JsonResponse(data)
 
 
 @check_login
@@ -757,3 +981,47 @@ def real_time_task_del(request):
     """
     删除实时任务
     """
+
+
+# @check_login
+def get_shop_list(request):
+    """
+    商品列表接口
+    """
+    res = {"code": 1, "msg": "success", "data": []}
+    for i in range(10):
+        app = {"id": i, "name": "手机" + str(i), "price": 100 + i}
+        res["data"].append(app)
+
+    return JsonResponse(res)
+
+
+# @check_login
+def shop_detail(request, id):
+    """
+    商品详情接口
+    """
+    if id > 1:
+
+        res = {"code": 1, "msg": "success", "data": {"price": 100, "store": 100}}
+    else:
+        res = {"code": -1, "msg": "this shop is not exists", "data": {}}
+    return JsonResponse(res)
+
+
+# @check_login
+def shop_add(request):
+    """
+    新增商品
+    """
+
+    data = json.loads(request.body)
+    name = data.get("name")  # 商品名字
+    price = data.get("price")  # 商品价格
+    address = data.get("address")  # 商品地址
+    if not name and not price and not address:
+        res = {"code": -1, "msg": "name,price,address is must be fill"}
+        return JsonResponse(res)
+    else:
+        res = {"code": 1, "msg": "success"}
+        return JsonResponse(res)

@@ -50,8 +50,8 @@ class Suite(models.Model):
 
 # 套件关联用例表
 class SuiteSetCase(models.Model):
+    # name = models.CharField(max_length=100)
     suite = models.ForeignKey('Suite', on_delete=models.CASCADE)
-    # case = models.ForeignKey('Case',  null=True, on_delete=models.SET_NULL)
     case_id = models.IntegerField(null=True)
 
 
@@ -84,12 +84,13 @@ class Fuzz(models.Model):
 # 任务表
 class Task(models.Model):
     name = models.CharField(max_length=100, default="")
-    extend = models.IntegerField(default=0)  # 0没有在测试，1测试中，2测试完成
+    task_state = models.IntegerField(default=0)  # 0没有在测试，1测试中，2测试完成
     task_type = models.IntegerField(default=0)  # 1实时任务,2定时任务
-    # 一个任务对应一个套件
-    suite = models.ForeignKey("suite", null=True, on_delete=models.SET_NULL)
+    # 一个任务对应一个关联
+    suite = models.OneToOneField("Suite", null=True, on_delete=models.SET_NULL)
 
 
+# 测试报告
 class Report(models.Model):
     name = models.CharField(max_length=100)
     start_time = models.CharField(max_length=100)
@@ -107,9 +108,9 @@ class Report(models.Model):
         return self.name
 
 
+# 测试报告详情
 class ReportItem(models.Model):
-    #  套件用例列表详细执行情况
-    task = models.OneToOneField("Task", null=True, on_delete=models.SET_NULL)
+    report = models.ForeignKey(Report, null=True, on_delete=models.SET_NULL)
 
     name = models.CharField(max_length=100)
     url = models.CharField(max_length=100)
@@ -119,8 +120,7 @@ class ReportItem(models.Model):
     hope = models.CharField(max_length=100)
     sum_time = models.CharField(max_length=50)
     fact = models.CharField(max_length=10000)
-    result = models.IntegerField(default=0)  # 0通过，-1失败，-2不检查
-    code = models.IntegerField(default=0)
+    result = models.IntegerField(default=0)  # 1通过，-1失败，-2不检查
 
     def __str__(self):
         return self.name
