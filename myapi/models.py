@@ -86,8 +86,8 @@ class Task(models.Model):
     name = models.CharField(max_length=100, default="")
     task_state = models.IntegerField(default=0)  # 0没有在测试，1测试中，2测试完成
     task_type = models.IntegerField(default=0)  # 1实时任务,2定时任务
-    # 一个任务对应一个关联
-    suite = models.OneToOneField("Suite", null=True, on_delete=models.SET_NULL)
+    # 关联套件表
+    suite = models.ForeignKey("Suite", null=True, on_delete=models.SET_NULL)
 
 
 # 测试报告
@@ -102,7 +102,7 @@ class Report(models.Model):
     report_path = models.CharField(max_length=100)
     #  套件用例执行的统计情况
 
-    task = models.OneToOneField("Task", null=True, on_delete=models.SET_NULL)
+    task = models.ForeignKey("Task", null=True, on_delete=models.SET_NULL)
 
     def __str__(self):
         return self.name

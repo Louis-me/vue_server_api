@@ -14,7 +14,6 @@ import threading
 import requests
 from myapi.base.task import ApiTask
 
-
 def check_login(func):  # 自定义登录验证装饰器
     def warpper(request, *args, **kwargs):
         token = request.META.get("HTTP_AUTHORIZATION")
@@ -680,7 +679,7 @@ def get_fuzz_list(request):
     # 获取数据
     for i in users.object_list:
         response["list"].append(
-            {"name": i.name, "fuzz_type": i.fuzz_type, "id": i.id, "fuzz_content": i.fuzz_content}
+            {"name": i.name, "fuzz_type": i.fuzz_type, "id": i.id, "content": i.fuzz_content}
         )
     res = {'code': 1, 'msg': '获取成功', 'data': response}
     # 将数据返回到页面
@@ -695,7 +694,7 @@ def fuzz_add(request):
     data = json.loads(request.body)
     name = data.get("name")
     fuzz_type = data.get("fuzz_type")
-    fuzz_content = data.get("fuzz_content")
+    fuzz_content = data.get("content")
     if fuzz_type == 3 and fuzz_content is None:
         res = {'code': -1, 'msg': 'fuzz_content must be fill'}
         return JsonResponse(res)
@@ -714,7 +713,7 @@ def fuzz_detail(request, id):
     """
     try:
         fuzz_entry = Fuzz.objects.get(id=id)
-        resp = {"name": fuzz_entry.name, "fuzz_type": fuzz_entry.fuzz_type, "fuzz_content": fuzz_entry.fuzz_content}
+        resp = {"name": fuzz_entry.name, "fuzz_type": fuzz_entry.fuzz_type, "content": fuzz_entry.fuzz_content}
         res = {'code': 1, 'msg': 'success', "data": resp}
         return JsonResponse(res)
     except ObjectDoesNotExist:
@@ -731,19 +730,20 @@ def fuzz_edit(request):
     id = data.get("id")
     name = data.get("name")
     fuzz_type = data.get("fuzz_type")
-    fuzz_content = data.get("fuzz_content")
-    if fuzz_type == 3 and fuzz_content is None:
-        res = {'code': -1, 'msg': 'fuzz_content must be fill'}
+    fuzz_content = data.get("content")
+    if fuzz_type != 3:
+        res = {'code': -1, 'msg': 'fuzz_type is error,must is 3'}
         return JsonResponse(res)
-    if not name or not fuzz_type:
-        res = {'code': -1, 'msg': 'name,fuzz_type must be fill'}
+
+    if name is not None or fuzz_content is not None or fuzz_type is not None:
+        res = {'code': -1, 'msg': 'content,fuzz_type,name must be fill'}
         return JsonResponse(res)
     try:
-        case_entry = Case.objects.get(id=id)
-        case_entry.name = name
-        case_entry.fuzz_type = fuzz_type
-        case_entry.fuzz_content = fuzz_content
-        case_entry.save()
+        fuzz_entry = Fuzz.objects.get(id=id)
+        fuzz_entry.name = name
+        fuzz_entry.fuzz_type = fuzz_type
+        fuzz_entry.fuzz_content = fuzz_content
+        fuzz_entry.save()
         res = {'code': 1, 'msg': 'success'}
         return JsonResponse(res)
 
@@ -868,7 +868,9 @@ def background_task(suite_id, task_id):
     task_id: 任务id
     """
     # 得到套件
-    su = Suite.objects.get(pk=suite_id)
+    su = Suite.objects.get(id=suite_id)
+    # 是否开启fuzz测试
+    is_fuzz = su.is_fuzz
     # 得到套件下关联的用例
     ss = su.suitesetcase_set.all()
     start_time = datetime.now().strftime("%H:%M:%S")
@@ -880,63 +882,15 @@ def background_task(suite_id, task_id):
     for i in ss:
         case_id = i.case_id
         case_entry = Case.objects.get(pk=case_id)
-        protocol = case_entry.protocol
-        method = case_entry.method
-        params = case_entry.params
-        hope = case_entry.hope
-        hopes = hope.split("|")
-        url = case_entry.url
-        res = {}
-        s_time = datetime.now().strftime("%H:%M:%S")
-        headers = {'Content-Type': "application/json"}
-        if method == "post":
-            if params:
-                params1 = ast.literal_eval(params)
-            else:
-                params1 = {}
-            print(protocol + "://" + url)
-            res = requests.post(url=protocol + "://" + url, json=params1, headers=headers)
-        elif method == "get":
-            if params:
-                params1 = ast.literal_eval(params)
-            else:
-                params1 = {}
-            print(protocol + "://" + url)
-            res = requests.get(url=protocol + "://" + url, params=params1, headers=headers)
-        else:
-            print("只支持get,post")
-        e_time = datetime.now().strftime("%H:%M:%S")
-        # 用例耗时时间
-        case_sum_time = ApiTask.get_case_total_time(s_time, e_time)
-        if res.status_code == 200:
-            resp = json.dumps(json.loads(res.text), separators=(',', ':'))
-            is_check = 0  # 0表示期望值不存在，没有进行检查;1成功;-1失败
-            if len(hopes):
-                is_check = 1
-                # 循环检查期望值是否在实际值中能找到
-                for j in hopes:
-                    if resp.find(j) == -1:
-                        is_check = -1
-                        break
-            # 同级用例结果
-            if is_check == 0:
-                no_check += 1
-            elif is_check == 1:
-                passed += 1
-            else:
-                failed += 1
-            # 新建测试报告详情，写测试接口的值
-            _report.reportitem_set.create(name=case_entry.name, url=url, protocol=protocol, method=method,
-                                          params=str(params)
-                                          , hope=hope, sum_time=case_sum_time, fact=resp,
-                                          result=is_check)
-            pass
-    time.sleep(5)
+        bac = ApiTask.exec_case_background(case_entry, no_check, passed,failed,_report, is_fuzz)
+        passed = passed + bac["passed"]
+        no_check = no_check + bac["no_check"]
+        failed = failed + bac["failed"]
+        pass
+    time.sleep(2)
     end_time = datetime.now().strftime("%H:%M:%S")
     # 以小时，分钟，秒钟的方式记录所有用例耗时时间
     total_time = ApiTask.get_case_total_time(start_time, end_time)
-    print("====total_time======")
-    print(total_time)
     # 再次编辑测试报告
     _report.sum_time = total_time
     _report.passed = passed
@@ -955,7 +909,6 @@ def real_time_task_detail(request, id):
     实时任务详情
     id为task得id
     """
-    # ss = Task.objects.get(id=id)
     # 得到测试总报告
     report = Report.objects.get(task_id=id)
     # 得到测试总报告下的测试详情
@@ -970,7 +923,19 @@ def real_time_task_detail(request, id):
             result = "失败"
         else:
             result = "无检查点"
-        app = {"url": url, "name": i.name, "method": i.method, "hope": i.hope, "fact": i.fact, "result": result}
+        params = i.params
+        if params:
+            params1 = ast.literal_eval(params)
+        else:
+            params1 = {}
+        fact = i.fact
+        if fact:
+            fact1 = ast.literal_eval(fact)
+        else:
+            fact1 = {}
+
+        app = {"url": url, "name": i.name, "method": i.method, "hope": i.hope, "fact": fact1,
+               "result": result, "params": params1}
         resp.append(app)
     data = {'code': 1, 'msg': 'success', "data": resp}
     return JsonResponse(data)
@@ -981,7 +946,19 @@ def real_time_task_del(request):
     """
     删除实时任务
     """
-
+    data = json.loads(request.body)
+    id = data.get("id")
+    if not id:
+        res = {'code': -1, 'msg': 'id must be fill'}
+        return JsonResponse(res)
+    try:
+        task_entry = Task.objects.get(id=id)
+        task_entry.delete()
+        res = {'code': 1, 'msg': 'success'}
+        return JsonResponse(res)
+    except ObjectDoesNotExist:
+        res = {'code': - 1, 'msg': 'id can not find a have effect data'}
+        return JsonResponse(res)
 
 # @check_login
 def get_shop_list(request):

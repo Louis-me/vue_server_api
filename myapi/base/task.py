@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
+import ast
+import json
 from datetime import datetime
 
 import requests
+from myapi.base.fuzz_param import BaseFuzzParams
+from myapi.models import Case
 
 
 class ApiTask(object):
@@ -16,3 +20,125 @@ class ApiTask(object):
         formats = "%H:%M:%S"
         total_time = datetime.strptime(end_time, formats) - datetime.strptime(start_time, formats)
         return str(total_time)
+
+    @classmethod
+    def exec_case_background(cls, case_entry, no_check, passed, failed, _report, is_fuzz):
+        """
+        :param case_entry 套件下关联的用例的实例类
+        :param no_check
+        :param passed
+        :param failed
+        :param _report 新建测试总报告的实体类
+        :param is_fuzz 是否开启fuzz
+        后台执行任务
+        """
+
+        protocol = case_entry.protocol
+        name = case_entry.name
+        method = case_entry.method
+        params = case_entry.params
+        hope = case_entry.hope
+        hopes = hope.split("|")
+        url = case_entry.url
+        s_time = datetime.now().strftime("%H:%M:%S")
+        print(protocol + "://" + url)
+
+        if params:
+            params1 = ast.literal_eval(params)
+        else:
+            params1 = {}
+        if params1 and is_fuzz:
+            code = 1 # 第一个默认是全部正确的参数，所以有检查点
+            for j in BaseFuzzParams().param_fi(params1):
+                res = cls().request_(method, protocol, url, j)
+                app = {"res": res, "s_time": s_time, "hopes": hopes, "url": url, "protocol": protocol,
+                       "params": j, "_report": _report, "name": "[模糊测试_%s]_%s" % (j["info"],name),
+                       "method": method, "code": code, "is_fuzz": 1, "hope": hope}
+                code = 2 # 后面的全部不检查
+                result = cls.sum_report_item(app)
+                # 同级用例结果
+                if result == 0:
+                    no_check += 1
+                elif result == 1:
+                    passed += 1
+                else:
+                    failed += 1
+        else:
+            res = cls().request_(method, protocol, url, params1)
+            app = {"res": res, "s_time": s_time, "hopes": hopes, "url": url, "protocol": protocol,
+                   "params": params1, "_report": _report, "name": name,
+                   "method": method,  "hope": hope}
+            result = cls().sum_report_item(app)
+
+            # 同级用例结果
+            if result == 0:
+                no_check = 1
+            elif result == 1:
+                passed = 1
+            else:
+                failed += 1
+        return {"passed": passed, "failed": failed, "no_check": no_check}
+
+    @classmethod
+    def request_(cls, method, protocol, url, params1):
+        """
+        发送请求
+        """
+        headers = {'Content-Type': "application/json"}
+        if method == "post":
+            res = requests.post(url=protocol + "://" + url, json=params1, headers=headers)
+        elif method == "get":
+            res = requests.get(url=protocol + "://" + url, params=params1, headers=headers)
+        else:
+            res = {}
+            print("只支持get,post")
+        return res
+
+    @classmethod
+    def sum_report_item(cls, kwargs):
+        """
+        每个用例的执行情况写入测试报告详情页
+        """
+        is_fuzz = kwargs.get("is_fuzz") # 表示是否为模糊用例
+        res = kwargs.get("res")  # 请求后返回的数据
+        s_time = kwargs.get("s_time")  # 用例请求前发送的时间
+        hopes = kwargs.get("hopes")  # 已经切割好的期望结果[]
+        hope = kwargs.get("hope")  # 期望结果
+        code = kwargs.get("code")  # 模糊测试下,code为1是正确的值
+        url = kwargs.get("url")
+        protocol = kwargs.get("protocol")  # 协议
+        params = kwargs.get("params")  # 入参
+        method = kwargs.get("method")  # 请求方法
+        _report = kwargs.get("_report")  # 新建用例总报告后的实体类
+        name = kwargs.get("name")  # 用例名字
+        e_time = datetime.now().strftime("%H:%M:%S")
+        # 用例耗时时间
+        case_sum_time = ApiTask.get_case_total_time(s_time, e_time)
+        if res.status_code == 200:
+            resp = json.dumps(json.loads(res.text), separators=(',', ':'))
+            is_check = 0  # 0表示期望值不存在，没有进行检查;1成功;-1失败
+            if is_fuzz:
+                # 在模糊执行用例时,code为1表示全部正确才有检查点
+                if code == 1 and len(hopes):
+                    for j in hopes:
+                        if resp.find(j) == -1:
+                            is_check = -1
+                            break
+                else:
+                    hope = ""
+            elif len(hopes):
+                is_check = 1
+                # 循环检查期望值是否在实际值中能找到
+                for j in hopes:
+                    if resp.find(j) == -1:
+                        is_check = -1
+                        break
+        else:
+            resp = {"status_code": res.status_code}
+            is_check = -1
+        # 新建测试报告详情，写测试接口的值
+        _report.reportitem_set.create(name=name, url=url, protocol=protocol, method=method,
+                                      params=str(params)
+                                      , hope=hope, sum_time=case_sum_time, fact=resp,
+                                      result=is_check)
+        return is_check

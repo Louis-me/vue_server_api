@@ -11,6 +11,11 @@ urlpatterns = [
     url(r'^user_edit/', views.user_edit),
     url(r'^user_del/', views.user_del),
     path('users/<int:id>/', views.users),
+    path('get_fuzz_list/', views.get_fuzz_list), # 模糊用例规则列表
+    path('fuzz_add/', views.fuzz_add), # 模糊用例规则添加
+    path('fuzz_edit/', views.fuzz_edit), # 模糊用例规则编辑
+    path('fuzz_detail/<int:id>', views.fuzz_detail), # 模糊用例规则详情
+    path('fuzz_del/', views.fuzz_del), # 删除模糊用例规则详情
     path('get_case_list/', views.get_case_list), # 带条件的用例列表
     path('get_case_all_list/', views.get_case_all_list), # 全部用例列表
     path('case_add/', views.case_add),
@@ -30,6 +35,7 @@ urlpatterns = [
     path('new_real_time_task/', views.new_real_time_task),
     path('get_real_time_task_list/', views.get_real_time_task_list),
     path('real_time_task_detail/<int:id>/', views.real_time_task_detail),
+    path('real_time_task_del/', views.real_time_task_del),
     url(r'^index/', views.index),
     url(r'^login/', views.login),
     url(r'^loginout/', views.loginout),
