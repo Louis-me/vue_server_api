@@ -701,7 +701,7 @@ def fuzz_add(request):
     if not name or not fuzz_type:
         res = {'code': -1, 'msg': 'name,fuzz_type must be fill'}
         return JsonResponse(res)
-    Case(name=name, fuzz_type=fuzz_type, fuzz_content=fuzz_content).save()
+    Fuzz(name=name, fuzz_type=fuzz_type, fuzz_content=fuzz_content).save()
     res = {'code': 1, 'msg': 'success'}
     return JsonResponse(res)
 
@@ -735,7 +735,7 @@ def fuzz_edit(request):
         res = {'code': -1, 'msg': 'fuzz_type is error,must is 3'}
         return JsonResponse(res)
 
-    if name is not None or fuzz_content is not None or fuzz_type is not None:
+    if not name or not fuzz_content or  not fuzz_type:
         res = {'code': -1, 'msg': 'content,fuzz_type,name must be fill'}
         return JsonResponse(res)
     try:
