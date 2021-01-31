@@ -546,8 +546,9 @@ def get_case_list(request):
     response['pageNum'] = users.number
     # 获取数据
     for i in users.object_list:
+        url = i.protocol + "://" + i.url
         response["list"].append(
-            {"name": i.name, "url": i.url, "id": i.id, "protocol": i.protocol,
+            {"name": i.name, "url": url, "id": i.id,
              "method": i.method, "params": i.params, "hope": i.hope}
         )
     res = {'code': 1, 'msg': '获取成功', 'data': response}
