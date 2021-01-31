@@ -62,7 +62,7 @@ class Case(models.Model):
     protocol = models.CharField(max_length=10)
     method = models.CharField(max_length=10)
     params = models.CharField(max_length=1000)
-    hope = models.CharField(max_length=100, null=True)
+    hope = models.CharField(max_length=1000, null=True)
     # 多个用例关联一个套件
     suite = models.ForeignKey(Suite, null=True, on_delete=models.SET_NULL)
 
@@ -73,7 +73,7 @@ class Case(models.Model):
 # 模糊用例配置
 class Fuzz(models.Model):
     name = models.CharField(max_length=100, default='')
-    # 0表示参数不传内容,1表示删除此参数,2表示传超长字符串,3表示自定义规则,需要配合fuzz_content使用
+    # 0表示参数不传内容,-1表示删除此参数,-2表示传超长字符串,-3表示自定义规则,需要配合fuzz_content使用
     fuzz_type = models.IntegerField(default=0)
     fuzz_content = models.CharField(max_length=10000, null=True)
 

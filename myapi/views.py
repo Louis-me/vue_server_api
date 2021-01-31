@@ -695,7 +695,7 @@ def fuzz_add(request):
     name = data.get("name")
     fuzz_type = data.get("fuzz_type")
     fuzz_content = data.get("content")
-    if fuzz_type == 3 and fuzz_content is None:
+    if fuzz_type == -3 and fuzz_content is None:
         res = {'code': -1, 'msg': 'fuzz_content must be fill'}
         return JsonResponse(res)
     if not name or not fuzz_type:
@@ -731,8 +731,8 @@ def fuzz_edit(request):
     name = data.get("name")
     fuzz_type = data.get("fuzz_type")
     fuzz_content = data.get("content")
-    if fuzz_type != 3:
-        res = {'code': -1, 'msg': 'fuzz_type is error,must is 3'}
+    if fuzz_type != -3:
+        res = {'code': -1, 'msg': 'fuzz_type is error,must is -3'}
         return JsonResponse(res)
 
     if not name or not fuzz_content or  not fuzz_type:
@@ -764,7 +764,7 @@ def fuzz_del(request):
         return JsonResponse(res)
     try:
         case_entry = Fuzz.objects.get(id=id)
-        if case_entry.fuzz_type in [0, 1, 2]:
+        if case_entry.fuzz_type in [0, -1, -2]:
             res = {'code': -1, 'msg': 'default fuzz rule cannot del'}
             return JsonResponse(res)
         case_entry.delete()
@@ -953,8 +953,11 @@ def real_time_task_del(request):
         return JsonResponse(res)
     try:
         task_entry = Task.objects.get(id=id)
-        task_entry.delete()
-        res = {'code': 1, 'msg': 'success'}
+        if task_entry.task_state == 2:
+            task_entry.delete()
+            res = {'code': 1, 'msg': 'success'}
+        else:
+            res = {'code': - 1, 'msg': 'task not finish,can not del'}
         return JsonResponse(res)
     except ObjectDoesNotExist:
         res = {'code': - 1, 'msg': 'id can not find a have effect data'}

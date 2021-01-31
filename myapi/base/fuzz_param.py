@@ -2,59 +2,50 @@
 
 import uuid
 from allpairspy import AllPairs
+from myapi.models import Fuzz
 # pip install allpairspy
 
 from collections import OrderedDict
 
 
+
+
 class BaseFuzzParams(object):
-    """ 设置接口的逆向参数
-        自动生成模糊接口参数第一步，提前准备逆向场景
-        Args:
-            d: dict类型，正向接口参数
-        Returns:
-           dict
-        Raises:
-           无
-        """
 
     def __get_data(self, d):
+        """
+        设置接口的逆向参数
+           自动生成模糊接口参数第一步，提前准备逆向场景
+           Args:
+               d: dict类型，正向接口参数
+           Returns:
+              dict
+           Raises:
+              无
+       """
+        fuzzs = Fuzz.objects.all()
+
         data = {}
         for i in d:
             data[i] = []
             #  加入一般规则
             data[i].append({"info": "正确的值", "code": 1, "value": d[i], "key": i})
-            data[i].append({"info": "值不传", "code": 0, "value": "", "key": i})
-            data[i].append({"info": "超长的值", "code": -2, "value": self.__param_format(type(d[i])), "key": i})
-            data[i].append({"info": "key直接删除", "code": -1, "key": i})
+            for j in fuzzs:
+                data[i].append({"code": j.fuzz_type, "key": i, "value": j.fuzz_content, "name":j.name})
         # 加入其它规则：如路径遍历，xss，注入
+
         return data
 
     '''
-    生成逆向场景参数
+    最长输入内容文字
     '''
 
-    def __param_format(self, key):
-        # if key == str:
-        #     return str(uuid.uuid1())
-        # elif key == int:
-        #     return 963852 # 也可以使用随机整数的方式
-        # elif key == list:
-        #     return [str(uuid.uuid1())]
-        # elif key == dict:
-        #     return {}
-        # elif key == "inject":
-        #     return "t'exec master..xp_cmdshell 'nslookup www.google.com'--"
-        # # 路径遍历
-        # elif key == "path_traversal":
-        #     pass
-        # else:
-        #     return "null"
-       return "’@#$%^&*()13131546489749411654132120.321131032132120#@$%^&*发" \
-              "发顺丰131315464897494116541321201313154648974941165413212013131546489749411654132120" \
-              "dfa13131546489749411654‘132120 " \
-              "第三方13131546489749411654132120" \
-              "安抚ds 13131546489749411654132120‘"
+    def __max_text(self, key):
+        return "’@#$%^&*()13131546489749411654132120.321131032132120#@$%^&*发" \
+               "发顺丰131315464897494116541321201313154648974941165413212013131546489749411654132120" \
+               "dfa13131546489749411654‘132120 " \
+               "第三方13131546489749411654132120" \
+               "安抚ds 13131546489749411654132120‘"
 
     '''
     得到逆向场景参数后，用AllPairs生成全对偶参数
@@ -80,21 +71,39 @@ class BaseFuzzParams(object):
             d1 = []
             for j in i:
                 app = {}
-                if j.get("code", -9) == -1:
-                    pass
-                elif j.get("code", -9) == 0:
+                """
+                 0 表示参数不传内容
+                 1 所有参数全部正确
+                 -1 表示删除此参数
+                 -2 表示传超长字符串
+                 -3 表示自定义规则, 需要配合fuzz_content使用
+                """
+
+                if j.get("code") == -1:
+                    info = "删除此参数"
+                elif j.get("code") == 0:
                     app[j["key"]] = ""
+                    info = "参数不传内容"
+                elif j.get("code") == -2:
+                    info = "超长字符串"
+                    app[j["key"]] = self.__max_text(type(j("value")))
+                elif j.get("code") == -3:
+                    info = j.get("name")
+                    app[j["key"]] = j.get("value")
                 else:
                     app[j["key"]] = j["value"]
-                app["info"] = j["key"] + j["info"]
+                    info = "参数正确"
+                app["info"] = j["key"] + info
                 d1.append(app)
             d2.append(d1)
         return d2
+
     '''
     对外的函数，处理生成的对偶场景接口参数
      Returns:
            [{},{}]
     '''
+
     def param_fi(self, d):
         g_data = self.__get_data(d)
         s_fuzz = self.__set_fuzz(g_data)
@@ -109,6 +118,9 @@ class BaseFuzzParams(object):
                 data.append(i[0])
                 break
         return data
+
+
 if __name__ == "__main__":
-    fz = BaseFuzzParams().param_fi({"user": "name", "id": 1001, "pwd": "!@#$^&*", "data": {"test": "hello"}, "my_list":["1", "2"]})
+    fz = BaseFuzzParams().param_fi(
+        {"user": "name", "id": 1001, "pwd": "!@#$^&*", "data": {"test": "hello"}, "my_list": ["1", "2"]})
     print(fz)

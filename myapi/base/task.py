@@ -47,15 +47,22 @@ class ApiTask(object):
             params1 = ast.literal_eval(params)
         else:
             params1 = {}
+        # 如果有参数和is_fuzz为真,就进行模糊测试
         if params1 and is_fuzz:
-            code = 1 # 第一个默认是全部正确的参数，所以有检查点
+            f_code = 1
             for j in BaseFuzzParams().param_fi(params1):
+                hope1 = "code:2"
+                # 为1表示所有参数为真,取正向场景的检查点
+                if f_code == 1:
+                    hope1 = hope
+                f_code = 2
+                hopes1 = hope1.split("|")
                 res = cls().request_(method, protocol, url, j)
-                app = {"res": res, "s_time": s_time, "hopes": hopes, "url": url, "protocol": protocol,
+                app = {"res": res, "s_time": s_time, "hopes": hopes1, "url": url, "protocol": protocol,
                        "params": j, "_report": _report, "name": "[模糊测试_%s]_%s" % (j["info"],name),
-                       "method": method, "code": code, "is_fuzz": 1, "hope": hope}
-                code = 2 # 后面的全部不检查
+                       "method": method, "hope": hope1}
                 result = cls.sum_report_item(app)
+
                 # 同级用例结果
                 if result == 0:
                     no_check += 1
@@ -64,6 +71,7 @@ class ApiTask(object):
                 else:
                     failed += 1
         else:
+            # 进行正常测试
             res = cls().request_(method, protocol, url, params1)
             app = {"res": res, "s_time": s_time, "hopes": hopes, "url": url, "protocol": protocol,
                    "params": params1, "_report": _report, "name": name,
@@ -99,12 +107,10 @@ class ApiTask(object):
         """
         每个用例的执行情况写入测试报告详情页
         """
-        is_fuzz = kwargs.get("is_fuzz") # 表示是否为模糊用例
         res = kwargs.get("res")  # 请求后返回的数据
         s_time = kwargs.get("s_time")  # 用例请求前发送的时间
         hopes = kwargs.get("hopes")  # 已经切割好的期望结果[]
         hope = kwargs.get("hope")  # 期望结果
-        code = kwargs.get("code")  # 模糊测试下,code为1是正确的值
         url = kwargs.get("url")
         protocol = kwargs.get("protocol")  # 协议
         params = kwargs.get("params")  # 入参
@@ -115,18 +121,10 @@ class ApiTask(object):
         # 用例耗时时间
         case_sum_time = ApiTask.get_case_total_time(s_time, e_time)
         if res.status_code == 200:
+            # separators 表示去掉字典转换为字符中的空格
             resp = json.dumps(json.loads(res.text), separators=(',', ':'))
             is_check = 0  # 0表示期望值不存在，没有进行检查;1成功;-1失败
-            if is_fuzz:
-                # 在模糊执行用例时,code为1表示全部正确才有检查点
-                if code == 1 and len(hopes):
-                    for j in hopes:
-                        if resp.find(j) == -1:
-                            is_check = -1
-                            break
-                else:
-                    hope = ""
-            elif len(hopes):
+            if len(hopes):
                 is_check = 1
                 # 循环检查期望值是否在实际值中能找到
                 for j in hopes:
