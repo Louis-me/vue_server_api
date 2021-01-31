@@ -3,16 +3,21 @@ import json
 import time
 from datetime import datetime
 
+from apscheduler.schedulers.background import BackgroundScheduler
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 from django.http import JsonResponse
 import uuid
 from django.core.exceptions import ObjectDoesNotExist
+from django_apscheduler.jobstores import DjangoJobStore, register_events
+from django_apscheduler.models import DjangoJob
+
 from myapi.models import *
 import requests
 import json
 import threading
 import requests
 from myapi.base.task import ApiTask
+
 
 def check_login(func):  # 自定义登录验证装饰器
     def warpper(request, *args, **kwargs):
@@ -736,7 +741,7 @@ def fuzz_edit(request):
         res = {'code': -1, 'msg': 'fuzz_type is error,must is -3'}
         return JsonResponse(res)
 
-    if not name or not fuzz_content or  not fuzz_type:
+    if not name or not fuzz_content or not fuzz_type:
         res = {'code': -1, 'msg': 'content,fuzz_type,name must be fill'}
         return JsonResponse(res)
     try:
@@ -836,7 +841,89 @@ def get_timing_task_list(request):
     """
     获取定时任务列表
     """
-    pass
+    data = request.GET
+    query = data.get("query")  # 查询条件
+    page_num = data.get("pagenum")  # 当前页码
+    page_size = data.get("pagesize")  # 每页显示多少条
+    task_type = 2
+    if query:
+        cases = Task.objects.filter(name__contains=query, task_type=task_type)
+
+    else:
+        cases = Task.objects.filter(task_type=task_type).order_by("-id")
+    response = {}
+    # 生成分页实例
+    paginator = Paginator(cases, page_size)
+    # 获取数据总条数
+    response['total_count'] = paginator.count
+    # 每页显示条数
+    response['page_size'] = page_size
+    # 总共页数
+    response['total_page'] = paginator.num_pages
+    response["list"] = []
+    try:
+        users = paginator.page(page_num)
+    except PageNotAnInteger:
+        users = paginator.page(1)
+    except EmptyPage:
+        users = paginator.page(paginator.num_pages)
+    # 当前多少页
+    response['pageNum'] = users.number
+    # 获取数据
+    for i in users.object_list:
+        if i.task_state == 1:
+            task_state_name = "测试中"
+        elif i.task_state == 2:
+            task_state_name = "测试完成"
+        else:
+            task_state_name = "未开始"
+        try:
+            suite_name = Suite.objects.get(id=i.suite_id).name
+        except:
+            suite_name = "没有值"
+
+        response["list"].append(
+            {"name": i.name, "id": i.id, "task_state_name": task_state_name,
+             "task_state": i.task_state, "suite_name": suite_name, "start_time": i.start_time}
+        )
+    res = {'code': 1, 'msg': '获取成功', 'data': response}
+    # 将数据返回到页面
+    return JsonResponse(res)
+
+
+@check_login
+def timing_task_del(request):
+    """
+    删除定时任务
+    修改任务只能修改参数，如果要修改执行时间的话，就把任务删了重新创建。
+    """
+
+
+@check_login
+def new_timing_task(request):
+    """
+    新建定时任务
+    """
+    scheduler = BackgroundScheduler()
+    scheduler.add_jobstore(DjangoJobStore(), 'default')
+
+    data = json.loads(request.body)
+    name = data.get("name")
+    task_state = 0
+    task_type = 2
+    suite_id = data.get("suite_id")
+    start_time1 = data.get("start_time")  # 用户输入的任务开始时间, '10:00:00'
+    start_time = start_time1.split(':')
+    hour = int(start_time[0])
+    minute = int(start_time[1])
+    ta = Task(name=name, task_type=task_type, task_state=task_state, suite_id=suite_id, start_time=start_time1)
+    ta.save()
+    scheduler.add_job(background_task, 'cron', hour=hour, minute=minute,
+                      kwargs={"suite_id": suite_id, "task": ta}, id=str(ta.id))
+
+    scheduler.start()
+    res = {'code': 1, 'msg': 'success'}
+    return JsonResponse(res)
 
 
 @check_login
@@ -844,7 +931,23 @@ def timing_task_del(request):
     """
     删除定时任务
     """
-
+    data = json.loads(request.body)
+    id = data.get("id")
+    if not id:
+        res = {'code': -1, 'msg': 'id must be fill'}
+        return JsonResponse(res)
+    try:
+        task_entry = Task.objects.get(id=id)
+        if task_entry.task_state in [0,2]:
+            DjangoJob.objects.filter(id=str(id)).delete()
+            task_entry.delete()
+            res = {'code': 1, 'msg': 'success'}
+        else:
+            res = {'code': - 1, 'msg': 'task not finish,can not del'}
+        return JsonResponse(res)
+    except ObjectDoesNotExist:
+        res = {'code': - 1, 'msg': 'id can not find a have effect data'}
+        return JsonResponse(res)
 
 @check_login
 def new_real_time_task(request):
@@ -853,21 +956,26 @@ def new_real_time_task(request):
     """
     data = json.loads(request.body)
     name = data.get("name")
-    task_state = 1
+    task_state = 0
     task_type = 1
     suite_id = data.get("suite_id")
     ta = Task(name=name, task_type=task_type, task_state=task_state, suite_id=suite_id)
     ta.save()
     res = {'code': 1, 'msg': 'success'}
-    threading.Thread(target=background_task, args=(), kwargs={"suite_id": suite_id, "task_id": ta.id}).start()
+    threading.Thread(target=background_task, args=(), kwargs={"suite_id": suite_id, "task": ta}).start()
     return JsonResponse(res)
 
 
-def background_task(suite_id, task_id):
+def background_task(suite_id, task):
     """
     suite_id: 套件id
-    task_id: 任务id
+    task: 任务实体类
+    task_entry: 任务实体
     """
+    task_id = task.id
+    # 更新任务为测试中
+    task.task_state = 1
+    task.save()
     # 得到套件
     su = Suite.objects.get(id=suite_id)
     # 是否开启fuzz测试
@@ -883,7 +991,7 @@ def background_task(suite_id, task_id):
     for i in ss:
         case_id = i.case_id
         case_entry = Case.objects.get(pk=case_id)
-        bac = ApiTask.exec_case_background(case_entry, no_check, passed,failed,_report, is_fuzz)
+        bac = ApiTask.exec_case_background(case_entry, no_check, passed, failed, _report, is_fuzz)
         passed = passed + bac["passed"]
         no_check = no_check + bac["no_check"]
         failed = failed + bac["failed"]
@@ -899,9 +1007,9 @@ def background_task(suite_id, task_id):
     _report.no_check = no_check
     _report.save()
     # 回写任务状态为已完成
-    task_entry = Task.objects.get(pk=task_id)
-    task_entry.task_state = 2
-    task_entry.save()
+    # task_entry = Task.objects.get(pk=task_id)
+    task.task_state = 2
+    task.save()
 
 
 @check_login
@@ -963,6 +1071,7 @@ def real_time_task_del(request):
     except ObjectDoesNotExist:
         res = {'code': - 1, 'msg': 'id can not find a have effect data'}
         return JsonResponse(res)
+
 
 # @check_login
 def get_shop_list(request):

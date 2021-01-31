@@ -86,6 +86,7 @@ class Task(models.Model):
     name = models.CharField(max_length=100, default="")
     task_state = models.IntegerField(default=0)  # 0没有在测试，1测试中，2测试完成
     task_type = models.IntegerField(default=0)  # 1实时任务,2定时任务
+    start_time = models.CharField(max_length=100, null=True) # 开始时间,用于定时任务
     # 关联套件表
     suite = models.ForeignKey("Suite", null=True, on_delete=models.SET_NULL)
 
