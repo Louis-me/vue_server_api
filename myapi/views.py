@@ -493,9 +493,9 @@ def suite_set_case(request):
     for i in suite_set_cases:
         if i.suite_id == suite_id:
             try:
-                entry = SuiteSetCase.objects.get(suite_id=suite_id)
-                if entry:
-                    entry.delete()
+                entrys = SuiteSetCase.objects.filter(suite_id=suite_id)
+                for j in entrys:
+                    j.delete()
             except ObjectDoesNotExist:
                 pass
     for i in case_ids:
