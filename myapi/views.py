@@ -259,7 +259,8 @@ def get_user_list(request):
             role_name = "普通用户"
         else:
             role_name = "超级用户"
-        response["list"].append({"name": i.name, "role_name": role_name, "id": i.id})
+        if i.name != "admin":
+            response["list"].append({"name": i.name, "role_name": role_name, "id": i.id})
     res = {'code': 1, 'msg': '获取成功', 'data': response}
     # 将数据返回到页面
     return JsonResponse(res)
