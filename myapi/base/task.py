@@ -51,7 +51,8 @@ class ApiTask(object):
         if params1 and is_fuzz:
             f_code = 1
             for j in BaseFuzzParams().param_fi(params1):
-                hope1 = "code:2"
+                # hope1 = "code:2"
+                hope1 = ""
                 # 为1表示所有参数为真,取正向场景的检查点
                 if f_code == 1:
                     hope1 = hope
@@ -124,7 +125,7 @@ class ApiTask(object):
             # separators 表示去掉字典转换为字符中的空格
             resp = json.dumps(json.loads(res.text), separators=(',', ':'))
             is_check = 0  # 0表示期望值不存在，没有进行检查;1成功;-1失败
-            if len(hopes):
+            if len(hopes) and len(hope):
                 is_check = 1
                 # 循环检查期望值是否在实际值中能找到
                 for j in hopes:
