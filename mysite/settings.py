@@ -12,9 +12,9 @@ https://docs.djangoproject.com/en/3.1/ref/settings/
 import os
 from pathlib import Path
 
-import pymysql
-pymysql.version_info = (1, 4, 13, "final", 0) #指定版本
-pymysql.install_as_MySQLdb()
+# import pymysql
+# pymysql.version_info = (1, 4, 13, "final", 0) #指定版本
+# pymysql.install_as_MySQLdb()
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -81,18 +81,18 @@ WSGI_APPLICATION = 'mysite.wsgi.application'
 # https://docs.djangoproject.com/en/3.1/ref/settings/#databases
 
 DATABASES = {
-    # 'default': {
-    #     'ENGINE': 'django.db.backends.sqlite3',
-    #     'NAME': BASE_DIR / 'db.sqlite3',
-    # }
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'mydb',  # 数据库名字
-        'USER': 'root',  # 帐号
-        'PASSWORD': '123456',  # 密码
-        'HOST': '127.0.0.1',  # IP
-        'PORT': '3306',  # 端口
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
+    # 'default': {
+    #     'ENGINE': 'django.db.backends.mysql',
+    #     'NAME': 'mydb',  # 数据库名字
+    #     'USER': 'root',  # 帐号
+    #     'PASSWORD': '123456',  # 密码
+    #     'HOST': '127.0.0.1',  # IP
+    #     'PORT': '3306',  # 端口
+    # }
 }
 
 # Password validation

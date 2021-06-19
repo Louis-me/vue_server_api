@@ -32,7 +32,6 @@ class ApiTask(object):
         :param is_fuzz 是否开启fuzz
         后台执行任务
         """
-
         protocol = case_entry.protocol
         name = case_entry.name
         method = case_entry.method
@@ -41,8 +40,8 @@ class ApiTask(object):
         hopes = hope.split("|")
         url = case_entry.url
         s_time = datetime.now().strftime("%H:%M:%S")
-        print(protocol + "://" + url)
-
+        # print(protocol + "://" + url)
+        # print(params)
         if params:
             params1 = ast.literal_eval(params)
         else:
@@ -111,6 +110,13 @@ class ApiTask(object):
         res = kwargs.get("res")  # 请求后返回的数据
         s_time = kwargs.get("s_time")  # 用例请求前发送的时间
         hopes = kwargs.get("hopes")  # 已经切割好的期望结果[]
+        # 把hopes转为dict
+        hopes1 = {}
+        if hopes[0] != '':
+            for i in hopes:
+                j = i.split(":")
+                hopes1[j[0]] = j[1]
+
         hope = kwargs.get("hope")  # 期望结果
         url = kwargs.get("url")
         protocol = kwargs.get("protocol")  # 协议
@@ -123,15 +129,18 @@ class ApiTask(object):
         case_sum_time = ApiTask.get_case_total_time(s_time, e_time)
         if res.status_code == 200:
             # separators 表示去掉字典转换为字符中的空格
-            resp = json.dumps(json.loads(res.text), separators=(',', ':'))
+            # resp = json.dumps(json.loads(res.text), separators=(',', ':'))
+            resp = json.loads(res.text)
             is_check = 0  # 0表示期望值不存在，没有进行检查;1成功;-1失败
-            if len(hopes) and len(hope):
-                is_check = 1
+            if len(hopes1) and len(hope):
+                is_check = -1
                 # 循环检查期望值是否在实际值中能找到
-                for j in hopes:
-                    if resp.find(j) == -1:
-                        is_check = -1
-                        break
+                for j in hopes1:
+                    if resp.get(j):
+                        if hopes1[j] == resp[j]:
+                            is_check = 1
+                            break
+
         else:
             resp = {"status_code": res.status_code}
             is_check = -1
