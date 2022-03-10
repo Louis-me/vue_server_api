@@ -1,15 +1,15 @@
+import time
+from datetime import datetime
+
 import requests
 
 # s = requests.Session()
-# resp = s.post("http://127.0.0.1:8100/myapi/login/", json={"username": "test1", "pwd": "1234567"})
+# resp = s.post("http://127.0.0.1:8100/myapi/login/", json={"username": "admin", "pwd": "123456"})
 # print(resp.text)
-resp2 = requests.get("http://192.210.206.201:8000/myapi/get_shop_list/")
-# # resp3 = s.get("http://127.0.0.1:8100/myapi/index/")
+# resp2 = requests.get("http://127.0.0.1:8100/myapi/reports_module_case")
+# print(resp2.text)
+# # # resp3 = s.get("http://127.0.0.1:8100/myapi/index/")
+#
 
-
-print(resp2.text)
-# print(resp3.text)
-
-
-# import uuid
-# print(uuid.uuid1())
+y = '15:07:00'.replace(':','-')
+print(y)

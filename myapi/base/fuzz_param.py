@@ -40,7 +40,7 @@ class BaseFuzzParams(object):
     最长输入内容文字
     '''
 
-    def __max_text(self, key):
+    def __max_text(self):
         return "’@#$%^&*()13131546489749411654132120.321131032132120#@$%^&*发" \
                "发顺丰131315464897494116541321201313154648974941165413212013131546489749411654132120" \
                "dfa13131546489749411654‘132120 " \
@@ -86,7 +86,7 @@ class BaseFuzzParams(object):
                     info = "参数不传内容"
                 elif j.get("code") == -2:
                     info = "超长字符串"
-                    app[j["key"]] = self.__max_text(type(j("value")))
+                    app[j["key"]] = self.__max_text()
                 elif j.get("code") == -3:
                     info = j.get("name")
                     app[j["key"]] = j.get("value")

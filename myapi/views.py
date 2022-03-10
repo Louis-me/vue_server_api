@@ -2,28 +2,32 @@ import ast
 import json
 import time
 from datetime import datetime
-
+from io import BytesIO
 from apscheduler.schedulers.background import BackgroundScheduler
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 import uuid
 from django.core.exceptions import ObjectDoesNotExist
 from django_apscheduler.jobstores import DjangoJobStore, register_events
 from django_apscheduler.models import DjangoJob
-
+import xlsxwriter
 from myapi.models import *
 import requests
 import json
 import threading
 import requests
 from myapi.base.task import ApiTask
+from myapi.base.element import Element
+import os
+
+from mysite import settings
 
 
 def check_login(func):  # 自定义登录验证装饰器
     def warpper(request, *args, **kwargs):
         token = request.META.get("HTTP_AUTHORIZATION")
         print("check_login")
-        print(token)
+        # print(token)
         # 得到token实体类
         try:
             token_entry = Token.objects.get(name=token)
@@ -316,6 +320,312 @@ def login_test(request):
     except ObjectDoesNotExist:
         result = {'code': -1, 'msg': 'please check login param is success?'}
         return JsonResponse(result)
+
+
+@check_login
+def reports_module_case(request):
+    """
+    测试报告-图形展示-模块用例数量
+    """
+    data = []
+    suites = Suite.objects.all()
+    for i in suites:
+        cases_list = SuiteSetCase.objects.filter(suite_id=i.id)
+        num = len(cases_list)
+        data.append({"id": i.id, "name": i.name, "num": num})
+    xAxis_data = []
+    series_data = []
+    for i in data:
+        xAxis_data.append(i["name"])
+        series_data.append(i["num"])
+    resp = {}
+    resp["title"] = {"text": "套件用例统计"}
+    resp["tooltip"] = {}
+    resp["xAxis"] = {"data": xAxis_data}
+    resp["yAxis"] = {}
+    resp["series"] = [{"name": "套件", "type": "bar", "data": series_data}]
+
+    # 将数据返回到页面
+    return JsonResponse({'code': 1, 'msg': '获取成功', 'data': resp})
+
+
+@check_login
+def reports_top_10_slow(request):
+    """
+    响应时间最慢的top10
+    """
+    rp = ReportItem.objects.all().order_by("-sum_time")[:10]
+    resp = []
+    for i in rp:
+        if i.result == 1:
+            result = "通过"
+        elif i.result == -1:
+            result = "失败"
+        else:
+            result = "无检查点"
+        resp.append({"name": i.name, "result": result, "sum_time": i.sum_time})
+    return JsonResponse({'code': 1, 'msg': '获取成功', 'data': resp})
+
+
+@check_login
+def reports_top_slow_export(request):
+    data = []
+    # 每次都删除excel，然后重建
+    name = "top10慢的接口"
+    excel_name = os.path.join(Element.REPORT_FILE, name) + ".xlsx"
+    if os.path.exists(excel_name):
+        os.remove(excel_name)
+        print("文件已经删除" + excel_name)
+
+    with open(excel_name, 'a+', encoding="utf-8") as f:
+        print("创建文件成功" + excel_name)
+
+    item_entry = ReportItem.objects.all().order_by("-sum_time")[:10]
+
+    for i in item_entry:
+        url = i.protocol + "//" + i.url
+        if i.result == 1:
+            result = "通过"
+        else:
+            result = "失败"
+
+        data.append({"url": url, "params": i.params, "name": i.name, "method": i.method, "hope": i.hope,
+                     "result": result, "sum_time": i.sum_time + "ms", "fact": i.fact})
+
+        workbook = xlsxwriter.Workbook(excel_name, {"string_to_urls": False})
+        worksheet = workbook.add_worksheet("响应时间最慢的top10")
+        worksheet.write("A1", "用例名")
+        worksheet.set_column("B:B", 60)
+        worksheet.write("B1", "url")
+        worksheet.write("C1", "请求方法")
+        worksheet.write("D1", "入参")
+        worksheet.write("E1", "期望结果")
+        worksheet.write("F1", "实际结果")
+        worksheet.set_column("F:F", 60)
+        worksheet.write("G1", "是否通过")
+        worksheet.write("H1", "耗时")
+        temp = 2
+        for j in data:
+            worksheet.write("A" + str(temp), j["name"])
+            worksheet.write("B" + str(temp), j["url"])
+            worksheet.write("C" + str(temp), j["method"])
+            worksheet.write("D" + str(temp), j["params"])
+            worksheet.write("E" + str(temp), j["hope"])
+            worksheet.write("F" + str(temp), j["fact"])
+            worksheet.write("G" + str(temp), j["result"])
+            worksheet.write("H" + str(temp), j["sum_time"])
+            temp += 1
+        workbook.close()
+
+    file_name1 = os.path.join(settings.BASE_DIR, "myapi/Report",name + ".xlsx")
+    file = open(file_name1, 'rb')
+    response = StreamingHttpResponse(file)
+    response['Content-Type'] = 'application/octet-stream'
+    response['Content-Disposition'] = 'attachment;filename="{}"'.format(name)
+    # file.close()
+
+    return response
+
+
+@check_login
+def report_task(request):
+    """
+    测试报告-图形展示-每个任务中的成功和失败用例
+    """
+    resp = {}
+    xAxis_data = []  # 任务名
+    # 只统计测试完成后的任务
+    passed1 = []
+    failed1 = []
+
+    report = Report.objects.all()
+    for i in report:
+        ta = Task.objects.get(id=i.task_id)
+        if ta.task_state == 2:
+            xAxis_data.append(i.name)
+            if i.passed:
+                passed1.append(i.passed)
+            if i.failed:
+                failed1.append(i.failed)
+
+    resp["xAxis_data"] = xAxis_data
+    resp["passed"] = passed1
+    resp["failed"] = failed1
+
+    return JsonResponse({'code': 1, 'msg': '获取成功', 'data': resp})
+
+
+@check_login
+def reports_list(request):
+    """
+        测试报告-所有的测试报告列表
+        """
+    data = request.GET
+    query = data.get("query")  # 查询条件
+    page_num = data.get("pagenum")  # 当前页码
+    page_size = data.get("pagesize")  # 每页显示多少条
+    if query:
+        reports = Report.objects.filter(name__contains=query)
+
+    else:
+        reports = Report.objects.order_by("-id")
+    response = {}
+    # 生成分页实例
+    paginator = Paginator(reports, page_size)
+    # 获取数据总条数
+    response['total_count'] = paginator.count
+    # 每页显示条数
+    response['page_size'] = page_size
+    # 总共页数
+    response['total_page'] = paginator.num_pages
+    response["list"] = []
+    try:
+        reports_pagi = paginator.page(page_num)
+    except PageNotAnInteger:
+        reports_pagi = paginator.page(1)
+    except EmptyPage:
+        reports_pagi = paginator.page(paginator.num_pages)
+    # 当前多少页
+    response['pageNum'] = reports_pagi.number
+    # 获取数据
+    for i in reports_pagi.object_list:
+        response["list"].append(
+            {"name": i.name, "id": i.id, "sum_time": i.sum_time, "passed": i.passed, "start_time": i.start_time,
+             "failed": i.failed}
+        )
+    res = {'code': 1, 'msg': '获取成功', 'data': response}
+    return JsonResponse(res)
+
+
+@check_login
+def report_export(request, id):
+    """
+    导出测试报告为excel
+    id 为report的id
+    """
+    data = []
+    report_entry = Report.objects.get(id=id)
+    excel_name = os.path.join(Element.REPORT_FILE, report_entry.name) + ".xlsx"
+    if os.path.exists(excel_name):
+        print("文件存在" + excel_name)
+    else:
+        with open(excel_name, 'a+', encoding="utf-8") as f:
+            print("创建文件成功" + excel_name)
+
+        item_entry = report_entry.reportitem_set.all()
+
+        for i in item_entry:
+            url = i.protocol + "//" + i.url
+            if i.result == 1:
+                result = "通过"
+            elif i.result == -1:
+                result = "失败"
+            else:
+                result = "无检查点"
+
+            data.append({"url": url, "params": i.params, "name": i.name, "method": i.method, "hope": i.hope,
+                         "result": result, "sum_time": i.sum_time + "ms", "fact": i.fact})
+
+        workbook = xlsxwriter.Workbook(excel_name, {"string_to_urls": False})
+        worksheet = workbook.add_worksheet(report_entry.name)
+        worksheet.write("A1", "用例名")
+        worksheet.set_column("B:B", 60)
+        worksheet.write("B1", "url")
+        worksheet.write("C1", "请求方法")
+        worksheet.write("D1", "入参")
+        worksheet.write("E1", "期望结果")
+        worksheet.write("F1", "实际结果")
+        worksheet.set_column("F:F", 60)
+        worksheet.write("G1", "是否通过")
+        worksheet.write("H1", "耗时")
+        temp = 2
+        for j in data:
+            worksheet.write("A" + str(temp), j["name"])
+            worksheet.write("B" + str(temp), j["url"])
+            worksheet.write("C" + str(temp), j["method"])
+            worksheet.write("D" + str(temp), j["params"])
+            worksheet.write("E" + str(temp), j["hope"])
+            worksheet.write("F" + str(temp), j["fact"])
+            worksheet.write("G" + str(temp), j["result"])
+            worksheet.write("H" + str(temp), j["sum_time"])
+            temp += 1
+        workbook.close()
+
+    file_name1 = os.path.join(settings.BASE_DIR, "myapi/Report", report_entry.name + ".xlsx")
+    file = open(file_name1, 'rb')
+    response = StreamingHttpResponse(file)
+    response['Content-Type'] = 'application/octet-stream'
+    response['Content-Disposition'] = 'attachment;filename="{}"'.format(report_entry.name)
+    # file.close()
+
+    return response
+
+
+@check_login
+def reports_detail(request, id):
+    """
+    测试报告详情
+    id为report的id
+    """
+    # 得到测试总报告
+    report = Report.objects.get(id=id)
+    # 得到测试总报告下的测试详情
+    report_items = report.reportitem_set.all()
+    resp = []
+    for i in report_items:
+        url = i.protocol + "//" + i.url
+        # 1通过，-1失败，-2不检查
+        if i.result == 1:
+            result = "通过"
+        elif i.result == -1:
+            result = "失败"
+        else:
+            result = "无检查点"
+        params = i.params
+        if params:
+            params1 = ast.literal_eval(params)
+        else:
+            params1 = {}
+        fact = i.fact
+        if fact:
+            fact1 = ast.literal_eval(fact)
+        else:
+            fact1 = {}
+
+        app = {"url": url, "name": i.name, "method": i.method, "hope": i.hope, "fact": fact1,
+               "result": result, "params": params1, "sum_time": i.sum_time}
+        resp.append(app)
+    data = {'code': 1, 'msg': 'success', "data": resp}
+    return JsonResponse(data)
+
+
+@check_login
+def report_detail_del(request):
+    """
+    删除测试报告
+    """
+    data = json.loads(request.body)
+    id = data.get("id")
+    if not id:
+        res = {'code': -1, 'msg': 'id must be fill'}
+        return JsonResponse(res)
+    try:
+        report_entry = Report.objects.get(id=id)
+        # 只能删除任务完成后的报告
+        task_entry = Task.objects.get(id=report_entry.task_id)
+        if task_entry.task_state == 2:
+            report_entry.delete()
+            file_name1 = os.path.join(settings.BASE_DIR, "myapi/Report", report_entry.name + ".xlsx")
+            if os.path.exists(file_name1):
+                os.remove(file_name1)
+                print("删除测试报告=" + file_name1)
+            res = {'code': 1, 'msg': 'success'}
+        else:
+            res = {'code': - 1, 'msg': 'task not finish,can not del'}
+        return JsonResponse(res)
+    except ObjectDoesNotExist:
+        res = {'code': - 1, 'msg': 'id can not find a have effect data'}
+        return JsonResponse(res)
 
 
 @check_login
@@ -827,10 +1137,18 @@ def get_real_time_task_list(request):
             suite_name = Suite.objects.get(id=i.suite_id).name
         except:
             suite_name = "没有值"
+        try:
+            # 得到测试总报告,获取用例数量统计，如果出现异常，可能是报告这里被删除了
+            report = Report.objects.get(task_id=i.id)
+            passed = report.passed
+            failed = report.failed
+        except:
+            passed = 0
+            failed = 0
 
         response["list"].append(
-            {"name": i.name, "id": i.id, "task_state_name": task_state_name,
-             "task_state": i.task_state, "suite_name": suite_name}
+            {"name": i.name, "id": i.id, "task_state_name": task_state_name, "sum_time": i.sum_time,
+             "task_state": i.task_state, "suite_name": suite_name, "passed": passed, "failed": failed}
         )
     res = {'code': 1, 'msg': '获取成功', 'data': response}
     # 将数据返回到页面
@@ -883,21 +1201,22 @@ def get_timing_task_list(request):
         except:
             suite_name = "没有值"
 
+        try:
+            # 得到测试总报告,获取用例数量统计，如果出现异常，可能是报告这里被删除了
+            report = Report.objects.get(task_id=i.id)
+            passed = report.passed
+            failed = report.failed
+        except:
+            passed = 0
+            failed = 0
+
         response["list"].append(
-            {"name": i.name, "id": i.id, "task_state_name": task_state_name,
-             "task_state": i.task_state, "suite_name": suite_name, "start_time": i.start_time}
+            {"name": i.name, "id": i.id, "task_state_name": task_state_name, "sum_time": i.sum_time, "passed": passed,
+             "task_state": i.task_state, "suite_name": suite_name, "start_time": i.start_time, "failed": failed}
         )
     res = {'code': 1, 'msg': '获取成功', 'data': response}
     # 将数据返回到页面
     return JsonResponse(res)
-
-
-@check_login
-def timing_task_del(request):
-    """
-    删除定时任务
-    修改任务只能修改参数，如果要修改执行时间的话，就把任务删了重新创建。
-    """
 
 
 @check_login
@@ -917,7 +1236,10 @@ def new_timing_task(request):
     start_time = start_time1.split(':')
     hour = int(start_time[0])
     minute = int(start_time[1])
-    ta = Task(name=name, task_type=task_type, task_state=task_state, suite_id=suite_id, start_time=start_time1)
+    # 最终替换这种格式,在生成文件（11:12:13）这种报错
+    start_time1 = start_time1.replace(":", "-")
+    ta = Task(name=name + "定时任务" + start_time1, task_type=task_type, task_state=task_state, suite_id=suite_id,
+              start_time=start_time1)
     ta.save()
     scheduler.add_job(background_task, 'cron', hour=hour, minute=minute,
                       kwargs={"suite_id": suite_id, "task": ta}, id=str(ta.id))
@@ -939,7 +1261,7 @@ def timing_task_del(request):
         return JsonResponse(res)
     try:
         task_entry = Task.objects.get(id=id)
-        if task_entry.task_state in [0,2]:
+        if task_entry.task_state in [0, 2]:
             DjangoJob.objects.filter(id=str(id)).delete()
             task_entry.delete()
             res = {'code': 1, 'msg': 'success'}
@@ -949,6 +1271,7 @@ def timing_task_del(request):
     except ObjectDoesNotExist:
         res = {'code': - 1, 'msg': 'id can not find a have effect data'}
         return JsonResponse(res)
+
 
 @check_login
 def new_real_time_task(request):
@@ -960,10 +1283,13 @@ def new_real_time_task(request):
     task_state = 0
     task_type = 1
     suite_id = data.get("suite_id")
-    ta = Task(name=name, task_type=task_type, task_state=task_state, suite_id=suite_id)
+    start_time = datetime.now().strftime("%H-%M-%S")
+    ta = Task(name=name + "实时任务" + start_time, task_type=task_type, task_state=task_state, suite_id=suite_id,
+              start_time=start_time)
     ta.save()
     res = {'code': 1, 'msg': 'success'}
     threading.Thread(target=background_task, args=(), kwargs={"suite_id": suite_id, "task": ta}).start()
+    # background_task(suite_id, ta)
     return JsonResponse(res)
 
 
@@ -983,33 +1309,39 @@ def background_task(suite_id, task):
     is_fuzz = su.is_fuzz
     # 得到套件下关联的用例
     ss = su.suitesetcase_set.all()
-    start_time = datetime.now().strftime("%H:%M:%S")
+    start_time = task.start_time
     # 新建一个测试报告
-    _report = Report(name=su.name, start_time=start_time, task_id=task_id)
+    _report = Report(name=task.name, start_time=start_time, task_id=task_id)
     _report.save()
-    # 初始化同级成功,失败,未检查的用例总数
-    passed = failed = no_check = 0
+    # 成功,失败例总数
+    passed = 0
+    failed = 0
+    if not ss:
+        print("==没有可用用例==")
     for i in ss:
+        time.sleep(2)
         case_id = i.case_id
         case_entry = Case.objects.get(pk=case_id)
-        bac = ApiTask.exec_case_background(case_entry, no_check, passed, failed, _report, is_fuzz)
+        bac = ApiTask.exec_case_background(case_entry, _report, is_fuzz)
         passed = passed + bac["passed"]
-        no_check = no_check + bac["no_check"]
         failed = failed + bac["failed"]
+
         pass
     time.sleep(2)
-    end_time = datetime.now().strftime("%H:%M:%S")
+
+    end_time = datetime.now().strftime("%H-%M-%S")
     # 以小时，分钟，秒钟的方式记录所有用例耗时时间
     total_time = ApiTask.get_case_total_time(start_time, end_time)
     # 再次编辑测试报告
     _report.sum_time = total_time
     _report.passed = passed
     _report.failed = failed
-    _report.no_check = no_check
     _report.save()
-    # 回写任务状态为已完成
-    # task_entry = Task.objects.get(pk=task_id)
+
+    task_sum_time = ApiTask.get_case_total_time(task.start_time, end_time)
+    # 回写任务已经完成
     task.task_state = 2
+    task.sum_time = task_sum_time
     task.save()
 
 
@@ -1045,7 +1377,7 @@ def real_time_task_detail(request, id):
             fact1 = {}
 
         app = {"url": url, "name": i.name, "method": i.method, "hope": i.hope, "fact": fact1,
-               "result": result, "params": params1}
+               "result": result, "params": params1, "sum_time": i.sum_time}
         resp.append(app)
     data = {'code': 1, 'msg': 'success', "data": resp}
     return JsonResponse(data)
