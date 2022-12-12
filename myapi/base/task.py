@@ -107,13 +107,16 @@ class ApiTask(object):
         发送请求
         """
         headers = {'Content-Type': "application/json"}
-        if method == "post":
-            res = requests.post(url=protocol + "://" + url, json=params1, headers=headers)
-        elif method == "get":
-            res = requests.get(url=protocol + "://" + url, params=params1, headers=headers)
-        else:
-            res = {}
-            print("只支持get,post")
+        try:
+            if method == "post":
+                res = requests.post(url=protocol + "://" + url, json=params1, headers=headers)
+            elif method == "get":
+                res = requests.get(url=protocol + "://" + url, params=params1, headers=headers)
+            else:
+                res = {}
+                print("只支持get,post")
+        except Exception as e:
+            res = {"state_code": res.status_code, "text": e}
         return res
 
     @classmethod
@@ -154,7 +157,7 @@ class ApiTask(object):
                             break
 
         else:
-            resp = {"status_code": res.status_code}
+            resp = {"status_code": res.status_code, "text": res.text if res.text else ""}
             is_check = -1
         # 新建测试报告详情，写测试接口的值
         _report.reportitem_set.create(name=name, url=url, protocol=protocol, method=method,
