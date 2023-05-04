@@ -53,4 +53,6 @@ urlpatterns = [
     url(r'^get_shop_list', views.get_shop_list),
     url(r'^shop_detail/<int:id>', views.shop_detail),
     url(r'^shop_add', views.shop_add),
+    url(r'^logs', views.logs),
+    url(r'^log_content', views.log_content),
 ]
