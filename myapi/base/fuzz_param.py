@@ -8,8 +8,6 @@ from myapi.models import Fuzz
 from collections import OrderedDict
 
 
-
-
 class BaseFuzzParams(object):
 
     def __get_data(self, d):
@@ -31,7 +29,7 @@ class BaseFuzzParams(object):
             #  加入一般规则
             data[i].append({"info": "正确的值", "code": 1, "value": d[i], "key": i})
             for j in fuzzs:
-                data[i].append({"code": j.fuzz_type, "key": i, "value": j.fuzz_content, "name":j.name})
+                data[i].append({"code": j.fuzz_type, "key": i, "value": j.fuzz_content, "name": j.name})
         # 加入其它规则：如路径遍历，xss，注入
 
         return data

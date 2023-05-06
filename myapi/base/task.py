@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 import ast
 import json
+import time
 from datetime import datetime
 
 import requests
 from myapi.base.fuzz_param import BaseFuzzParams
-from myapi.models import Case
+from myapi.models import Case, Suite, Report
 
 
 class ApiTask(object):
@@ -30,7 +31,7 @@ class ApiTask(object):
         :return:
         """
         total_time = (end_time - start_time).seconds * 1000 + (end_time - start_time).microseconds / 1000
-        return str(total_time)
+        return str(total_time)+"ms"
 
     @classmethod
     def exec_case_background(cls, case_entry, _report, is_fuzz):
@@ -165,3 +166,56 @@ class ApiTask(object):
                                       , hope=hope, sum_time=sum_time, fact=resp,
                                       result=is_check)
         return is_check
+
+    @classmethod
+    def background_task(cls, suite_id, task):
+        """
+        后台执行的任务：获取套件-获取套件下的用例
+        suite_id: 套件id
+        task: 任务实体类
+        task_entry: 任务实体
+        """
+        task_id = task.id
+        # 更新任务为测试中
+        task.task_state = 1
+        task.save()
+        # 得到套件
+        su = Suite.objects.get(id=suite_id)
+        # 是否开启fuzz测试
+        is_fuzz = su.is_fuzz
+        # 得到套件下关联的用例
+        ss = su.suitesetcase_set.all()
+        start_time = task.start_time
+        # 新建一个测试报告
+        _report = Report(name=task.name, start_time=start_time, task_id=task_id)
+        _report.save()
+        # 成功,失败例总数
+        passed = 0
+        failed = 0
+        if not ss:
+            print("==没有可用用例==")
+        for i in ss:
+            time.sleep(2)
+            case_id = i.case_id
+            case_entry = Case.objects.get(pk=case_id)
+            bac = cls().exec_case_background(case_entry, _report, is_fuzz)
+            passed = passed + bac["passed"]
+            failed = failed + bac["failed"]
+
+            pass
+        time.sleep(2) # 测试用，后续要关闭这里
+
+        end_time = datetime.now().strftime("%H-%M-%S")
+        # 以小时，分钟，秒钟的方式记录所有用例耗时时间
+        total_time = cls().get_case_total_time(start_time, end_time)
+        # 再次编辑测试报告
+        _report.sum_time = total_time
+        _report.passed = passed
+        _report.failed = failed
+        _report.save()
+
+        task_sum_time = ApiTask.get_case_total_time(task.start_time, end_time)
+        # 回写任务已经完成
+        task.task_state = 2
+        task.sum_time = task_sum_time
+        task.save()
